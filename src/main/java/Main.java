@@ -11,19 +11,74 @@ import spark.template.freemarker.FreeMarkerEngine;
 import spark.ModelAndView;
 import static spark.Spark.get;
 
-import com.heroku.sdk.jdbc.DatabaseUrl;
-
 import static javax.measure.unit.SI.KILOGRAM;
 import javax.measure.quantity.Mass;
 import org.jscience.physics.model.RelativisticModel;
 import org.jscience.physics.amount.Amount;
 
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+import spark.Request;
+import spark.Response;
+
+
 public class Main {
+	private static Object pool;
+	
+     private static class Redis {
+	public static boolean isLocalhost()
+	{
+             String uri = System.getenv("REDISCLOUD_URI");
+	     if( uri == null ) return true;
+	     
+	     if( uri.equals("localhost") ) return true;
+	     else return false;
+	}
+        public static String getUri()	
+	{
+	   return isLocalhost() ? "localhost" : System.getenv("REDISCLOUD_URI");
+	}
+      }
+      
 
   public static void main(String[] args) {
 
+
     port(Integer.valueOf(System.getenv("PORT")));
     staticFileLocation("/public");
+
+    get("/redis", (req, res) -> {
+
+     try { 
+         JedisPool pool;
+         if( Redis.isLocalhost() )
+         {
+           pool = new JedisPool(new JedisPoolConfig(), Redis.getUri());
+         } else {
+            URI redisUri = new URI(Redis.getUri());
+            pool = new JedisPool(new JedisPoolConfig(),
+	                 redisUri.getHost(),
+		         redisUri.getPort(),
+		         2000,
+		         redisUri.getUserInfo().split(":",2)[1]
+	                 );
+	 }
+     
+	 Jedis jedis = pool.getResource();
+         //jedis.set("foo", "bar");
+         String value = jedis.get("foo");
+         //return the instance to the pool when you're done
+         pool.returnResource(jedis); 
+         return "{" + Redis.getUri() + "} value = " + value; 
+
+       } catch(Exception e) {
+	 return "Exception: " + e.getMessage();
+       }
+    
+    });
+
+
 
     get("/hello", (req, res) -> {
 	    RelativisticModel.select();
@@ -39,32 +94,8 @@ public class Main {
             return new ModelAndView(attributes, "index.ftl");
         }, new FreeMarkerEngine());
 
-    get("/db", (req, res) -> {
-      Connection connection = null;
-      Map<String, Object> attributes = new HashMap<>();
-      try {
-        connection = DatabaseUrl.extract().getConnection();
 
-        Statement stmt = connection.createStatement();
-        stmt.executeUpdate("CREATE TABLE IF NOT EXISTS ticks (tick timestamp)");
-        stmt.executeUpdate("INSERT INTO ticks VALUES (now())");
-        ResultSet rs = stmt.executeQuery("SELECT tick FROM ticks");
+   }
 
-        ArrayList<String> output = new ArrayList<String>();
-        while (rs.next()) {
-          output.add( "Read from DB: " + rs.getTimestamp("tick"));
-        }
-
-        attributes.put("results", output);
-        return new ModelAndView(attributes, "db.ftl");
-      } catch (Exception e) {
-        attributes.put("message", "There was an error: " + e);
-        return new ModelAndView(attributes, "error.ftl");
-      } finally {
-        if (connection != null) try{connection.close();} catch(SQLException e){}
-      }
-    }, new FreeMarkerEngine());
-
-  }
 
 }

@@ -22,11 +22,11 @@ import redis.clients.jedis.JedisPoolConfig;
 import spark.Request;
 import spark.Response;
 
-
 public class Main {
-	private static Object pool;
-	
+
+     // can throw
      private static class Redis {
+	private static JedisPool pool;
 	public static boolean isLocalhost()
 	{
              String uri = System.getenv("REDISCLOUD_URI");
@@ -39,19 +39,8 @@ public class Main {
 	{
 	   return isLocalhost() ? "localhost" : System.getenv("REDISCLOUD_URI");
 	}
-      }
-      
-
-  public static void main(String[] args) {
-
-
-    port(Integer.valueOf(System.getenv("PORT")));
-    staticFileLocation("/public");
-
-    get("/redis", (req, res) -> {
-
-     try { 
-         JedisPool pool;
+	public static void createPool() throws URISyntaxException
+	{
          if( Redis.isLocalhost() )
          {
            pool = new JedisPool(new JedisPoolConfig(), Redis.getUri());
@@ -64,20 +53,56 @@ public class Main {
 		         redisUri.getUserInfo().split(":",2)[1]
 	                 );
 	 }
-     
+	}
+
+	public static String getFoo()
+	{
 	 Jedis jedis = pool.getResource();
-         //jedis.set("foo", "bar");
          String value = jedis.get("foo");
-         //return the instance to the pool when you're done
          pool.returnResource(jedis); 
-         return "{" + Redis.getUri() + "} value = " + value; 
+         return value;
+	}
+	
+	public static String setFoo(String value)
+	{
+	 Jedis jedis = pool.getResource();
+         String result = jedis.set("foo", value);
+         pool.returnResource(jedis); 
+         return result;
+	}
+      }
+      
+
+  public static void main(String[] args) {
+
+
+    port(Integer.valueOf(System.getenv("PORT")));
+    staticFileLocation("/public");
+
+    get("/redis", (req, res) -> {
+       try { 
+	Redis.createPool();
+        return "{" + Redis.getUri() + "} value = " + Redis.getFoo(); 
+       } catch(Exception e) {
+	 return "Exception: " + e.getMessage();
+       }
+    });
+
+    put("/redis", (req, res) -> {
+       try { 
+	String value = req.queryParams("foo");
+	if( value != null )
+	{
+	  Redis.createPool();
+          return "[" + Redis.getUri() + "] set 'foo' => " + Redis.setFoo(value);
+	} else {
+          return "[" + Redis.getUri() + "] 'foo' param not found" ; 
+	}
 
        } catch(Exception e) {
 	 return "Exception: " + e.getMessage();
        }
-    
     });
-
 
 
     get("/hello", (req, res) -> {

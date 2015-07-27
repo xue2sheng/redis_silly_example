@@ -5,6 +5,7 @@ import java.util.Map;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Arrays;
 
 import static spark.Spark.*;
 import spark.template.freemarker.FreeMarkerEngine;
@@ -26,6 +27,8 @@ public class Main {
 
      // can throw
      private static class Redis {
+	private static final int INTERATIONS = 1000;
+	private static final int CDR_SIZE = 1024;
 	private static JedisPool pool;
 	public static boolean isLocalhost()
 	{
@@ -35,6 +38,28 @@ public class Main {
 	     if( uri.equals("localhost") ) return true;
 	     else return false;
 	}
+	public static int interations()
+	{
+             String iterations = System.getenv("INTERATIONS");
+	     if( iterations == null ) return INTERATIONS;
+	     else return Integer.parseInt(iterations);
+	}	
+	public static int cdrSize()
+	{
+             String cdr_size = System.getenv("CDR_SIZE");
+	     if( cdr_size == null ) return CDR_SIZE;
+	     else return Integer.parseInt(cdr_size);
+	}
+	public static String fakeCDR()
+	{
+	     byte[] fake = new byte[cdrSize()]; 
+	     for(int i=0; i<cdrSize(); ++i )  
+	     {
+                 fake[i]=1;
+	     }
+	     return Arrays.toString(fake);
+	}
+	
         public static String getUri()	
 	{
 	   return isLocalhost() ? "localhost" : System.getenv("REDISCLOUD_URI");
@@ -70,55 +95,56 @@ public class Main {
          pool.returnResource(jedis); 
          return result;
 	}
+
+	public static String setCDRs()
+	{
+	   Jedis jedis = pool.getResource();
+	   long lStartTime = System.currentTimeMillis();
+	   String fakeCDR = fakeCDR();
+	   for(int i=0; i<interations(); ++i)
+	   {
+	     jedis.set("key" + Integer.toString(i), fakeCDR);
+	   }
+	   long lEndTime = System.currentTimeMillis();
+           long difference = lEndTime - lStartTime;
+	   pool.returnResource(jedis);
+	   return "Elapsed " + Long.toString(difference) + " milliseconds for SETTING" 
+		   + Integer.toString(interations()) + " fake CDRs of "
+		   + Integer.toString(cdrSize()) + " bytes";
+	}
+	public static String getCDRs()
+	{
+	   Jedis jedis = pool.getResource();
+	   long lStartTime = System.currentTimeMillis();
+	   String fakeCDR = fakeCDR();
+	   for(int i=0; i<interations(); ++i)
+	   {
+	     jedis.get("key" + Integer.toString(i));
+	   }
+	   long lEndTime = System.currentTimeMillis();
+           long difference = lEndTime - lStartTime;
+	   pool.returnResource(jedis);
+	   return "Elapsed " + Long.toString(difference) + " milliseconds for GETTING" 
+		   + Integer.toString(interations()) + " fake CDRs of "
+		   + Integer.toString(cdrSize()) + " bytes";
+	}
+	
       }
       
 
   public static void main(String[] args) {
 
-
     port(Integer.valueOf(System.getenv("PORT")));
     staticFileLocation("/public");
 
-    get("/redis", (req, res) -> {
+    get("/", (req, res) -> {
        try { 
 	Redis.createPool();
-        return "{" + Redis.getUri() + "} value = " + Redis.getFoo(); 
+        return "{" + Redis.getUri() + "}<br />" + Redis.setCDRs() + "<br />" + Redis.getCDRs(); 
        } catch(Exception e) {
 	 return "Exception: " + e.getMessage();
        }
     });
-
-    put("/redis", (req, res) -> {
-       try { 
-	String value = req.queryParams("foo");
-	if( value != null )
-	{
-	  Redis.createPool();
-          return "[" + Redis.getUri() + "] set 'foo' => " + Redis.setFoo(value);
-	} else {
-          return "[" + Redis.getUri() + "] 'foo' param not found" ; 
-	}
-
-       } catch(Exception e) {
-	 return "Exception: " + e.getMessage();
-       }
-    });
-
-
-    get("/hello", (req, res) -> {
-	    RelativisticModel.select();
-	    String energy = System.getenv().get("ENERGY");
-	    Amount<Mass> m = Amount.valueOf(energy).to(KILOGRAM);
-	    return "E=mc^2: " + energy + " = " + m.toString();
-    });
-
-    get("/", (request, response) -> {
-            Map<String, Object> attributes = new HashMap<>();
-            attributes.put("message", "Hello World!");
-
-            return new ModelAndView(attributes, "index.ftl");
-        }, new FreeMarkerEngine());
-
 
    }
 
